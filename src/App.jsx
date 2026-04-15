@@ -100,28 +100,43 @@ function App() {
   if (!user) {
     return (
       <div className="app-bg">
-        <div className="app-shell login-shell">
-          <h1 className="title">Sistema de Afiliados</h1>
-          <p className="subtitle">Acceso al panel de gestión</p>
+        <div className="app-shell login-shell-wide">
+          <div className="login-card">
+            <div className="login-brand">
+              <span className="login-kicker">SISTEMA EMPRESARIAL</span>
+              <h1 className="login-title">Sistema de Afiliados</h1>
+              <p className="login-text">
+                Gestiona afiliados, consultas y beneficiarios desde un panel seguro y profesional.
+              </p>
 
-          <div className="panel">
-            <h2 className="section-title">Login</h2>
-            <input
-              className="input"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <input
-              className="input"
-              type="password"
-              placeholder="Contraseña"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button className="button button-primary button-full" onClick={login} disabled={loading}>
-              {loading ? 'Cargando...' : 'Entrar'}
-            </button>
+              <div className="login-badges">
+                <span className="login-badge">Seguridad de acceso</span>
+                <span className="login-badge">Control por roles</span>
+                <span className="login-badge">Auditoria de consultas</span>
+              </div>
+            </div>
+
+            <div className="panel login-panel">
+              <h2 className="section-title">Iniciar sesión</h2>
+              <p className="muted login-helper">Ingresa tus credenciales para continuar.</p>
+
+              <input
+                className="input"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="Contraseña"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button className="button button-primary button-full login-submit" onClick={login} disabled={loading}>
+                {loading ? 'Cargando...' : 'Entrar al sistema'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
