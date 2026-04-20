@@ -1,21 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 
+/** Vista alternativa si enlazas por documento sin cliente_id (no usada en App actual). */
 function PerfilAfiliado({ user, profile }) {
   const [loading, setLoading] = useState(false)
   const [cliente, setCliente] = useState(null)
   const [beneficiarios, setBeneficiarios] = useState([])
   const [formBeneficiario, setFormBeneficiario] = useState({
     nombre: '',
-    parentesco: '',
+    apellido: '',
     documento: ''
   })
 
-  useEffect(() => {
-    cargarPerfilAfiliado()
-  }, [user?.id])
-
-  const cargarPerfilAfiliado = async () => {
+  const cargarPerfilAfiliado = useCallback(async () => {
     setLoading(true)
 
     let clienteData = null
@@ -48,13 +45,17 @@ function PerfilAfiliado({ user, profile }) {
 
     const { data: dataBenef } = await supabase
       .from('beneficiarios')
-      .select('*')
+      .select('id, cliente_id, nombre, apellido, documento')
       .eq('cliente_id', clienteData.id)
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
 
     setBeneficiarios(dataBenef || [])
     setLoading(false)
-  }
+  }, [profile?.cliente_id, profile?.documento])
+
+  useEffect(() => {
+    cargarPerfilAfiliado()
+  }, [user?.id, cargarPerfilAfiliado])
 
   const handleChange = (e) => {
     setFormBeneficiario({
@@ -78,7 +79,7 @@ function PerfilAfiliado({ user, profile }) {
       {
         cliente_id: cliente.id,
         nombre,
-        parentesco: formBeneficiario.parentesco.trim(),
+        apellido: formBeneficiario.apellido.trim(),
         documento: formBeneficiario.documento.trim()
       }
     ])
@@ -91,11 +92,10 @@ function PerfilAfiliado({ user, profile }) {
 
     setFormBeneficiario({
       nombre: '',
-      parentesco: '',
+      apellido: '',
       documento: ''
     })
     await cargarPerfilAfiliado()
-    setLoading(false)
   }
 
   return (
@@ -124,7 +124,8 @@ function PerfilAfiliado({ user, profile }) {
           <ul className="simple-list">
             {beneficiarios.map((item) => (
               <li key={item.id}>
-                {(item.nombre || 'Sin nombre')} - {(item.parentesco || 'Sin parentesco')}
+                {(item.nombre || 'Sin nombre')} {item.apellido || ''}
+                {item.documento ? ` · ${item.documento}` : ''}
               </li>
             ))}
           </ul>
@@ -141,9 +142,9 @@ function PerfilAfiliado({ user, profile }) {
           />
           <input
             className="input"
-            name="parentesco"
-            placeholder="Parentesco"
-            value={formBeneficiario.parentesco}
+            name="apellido"
+            placeholder="Apellido"
+            value={formBeneficiario.apellido}
             onChange={handleChange}
           />
           <input
