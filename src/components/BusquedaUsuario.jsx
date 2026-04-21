@@ -1,286 +1,499 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  fetchBeneficiariosPorCliente,
-  fetchClientes,
-  insertBeneficiario,
-  registrarLogConsulta
-} from '../api/afiliados'
+/**
+ * BusquedaUsuario.jsx
+ * Layout legacy empresarial — 3 columnas + tabs superiores.
+ * Pestaña "Consultas" funcional. Afiliados y Pagos: visuales.
+ * Sin dependencia de cliente_id — búsqueda global por documento.
+ */
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../supabase'
+import { registrarLogConsulta } from '../api/afiliados'
 
-function BusquedaUsuario() {
-  const { user, profile, normalizedRole } = useAuth()
+const TABS = ['Afiliados', 'Pagos', 'Consultas', 'Reportes Mensuales']
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
-  const clienteId = profile?.cliente_id
+export default function BusquedaUsuario() {
+  const { user } = useAuth()
+  const [tabActiva, setTabActiva] = useState('Consultas')
 
-  const [listLoading, setListLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState(false)
-  const [documentoBusqueda, setDocumentoBusqueda] = useState('')
-  const [documentoDebounced, setDocumentoDebounced] = useState('')
+  // ── Estado búsqueda ──────────────────────────────────────────
+  const [documento, setDocumento]           = useState('')
+  const [clientes, setClientes]             = useState([])
+  const [buscando, setBuscando]             = useState(false)
+  const [buscado, setBuscado]               = useState(false)   // ¿se hizo al menos 1 búsqueda?
 
-  const [clientes, setClientes] = useState([])
-  const [beneficiarios, setBeneficiarios] = useState([])
-  const [benefLoading, setBenefLoading] = useState(false)
+  // ── Estado beneficiarios ─────────────────────────────────────
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
+  const [beneficiarios, setBeneficiarios]   = useState([])
+  const [benefLoading, setBenefLoading]     = useState(false)
+  const [formBenef, setFormBenef]           = useState({ nombre: '', apellido: '', documento: '' })
+  const [guardando, setGuardando]           = useState(false)
+  const [benefMsg, setBenefMsg]             = useState(null)   // { type, text }
 
-  const [formBeneficiario, setFormBeneficiario] = useState({
-    nombre: '',
-    apellido: '',
-    documento: ''
-  })
+  // ── Buscar afiliados ─────────────────────────────────────────
+  const buscarAfiliado = useCallback(async (e) => {
+    if (e) e.preventDefault()
+    const term = documento.trim()
+    if (!term) return
 
-  const miCliente = clientes[0] || null
+    setBuscando(true)
+    setBuscado(true)
+    setClienteSeleccionado(null)
+    setBeneficiarios([])
+    setBenefMsg(null)
 
-  useEffect(() => {
-    const t = setTimeout(() => setDocumentoDebounced(documentoBusqueda), 320)
-    return () => clearTimeout(t)
-  }, [documentoBusqueda])
+    if (user?.id) registrarLogConsulta(user.id, term)
 
-  const cargarClientes = useCallback(async (explicitPatron) => {
-    if (!clienteId) {
-      setClientes([])
-      setListLoading(false)
-      return
-    }
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('id, nombre, apellido, documento, fecha_ingreso')
+      .ilike('documento', `%${term}%`)
+      .order('apellido')
+      .limit(50)
 
-    const patron = explicitPatron !== undefined ? explicitPatron : documentoDebounced
+    setClientes(error ? [] : (data ?? []))
+    setBuscando(false)
+  }, [documento, user?.id])
 
-    setListLoading(true)
-    const { data, error } = await fetchClientes({
-      role: 'user',
-      clienteId,
-      documentoPatron: patron
-    })
-    if (error) {
-      alert('Error al cargar tu afiliado: ' + error.message)
-      setClientes([])
-    } else {
-      setClientes(data || [])
-    }
-    setListLoading(false)
-  }, [clienteId, documentoDebounced])
-
-  useEffect(() => {
-    cargarClientes()
-  }, [cargarClientes])
-
-  const cargarBeneficiarios = useCallback(async (id) => {
+  // ── Cargar beneficiarios de un cliente ───────────────────────
+  const cargarBeneficiarios = useCallback(async (clienteId) => {
     setBenefLoading(true)
-    const { data, error } = await fetchBeneficiariosPorCliente(id)
-    if (error) {
-      alert('No se pudieron cargar beneficiarios: ' + error.message)
-      setBeneficiarios([])
-    } else {
-      setBeneficiarios(data || [])
-    }
+    setBenefMsg(null)
+    const { data, error } = await supabase
+      .from('beneficiarios')
+      .select('id, nombre, apellido, documento')
+      .eq('cliente_id', clienteId)
+      .order('id', { ascending: false })
+
+    setBeneficiarios(error ? [] : (data ?? []))
     setBenefLoading(false)
   }, [])
 
-  useEffect(() => {
-    if (miCliente?.id) cargarBeneficiarios(miCliente.id)
-    else setBeneficiarios([])
-  }, [miCliente?.id, cargarBeneficiarios])
-
-  const handleBuscar = async (e) => {
-    e.preventDefault()
-    const doc = documentoBusqueda.trim()
-    if (!doc) {
-      alert('Ingresa un documento para buscar')
-      return
-    }
-    if (!user?.id) return
-
-    setActionLoading(true)
-    const { error: logErr } = await registrarLogConsulta(user.id, doc)
-    if (logErr) console.warn('Log consulta:', logErr.message)
-    await cargarClientes(doc)
-    setActionLoading(false)
+  function seleccionarCliente(cliente) {
+    const mismo = clienteSeleccionado?.id === cliente.id
+    setClienteSeleccionado(mismo ? null : cliente)
+    setBeneficiarios([])
+    setBenefMsg(null)
+    setFormBenef({ nombre: '', apellido: '', documento: '' })
+    if (!mismo) cargarBeneficiarios(cliente.id)
   }
 
-  const handleChangeBenef = (e) => {
-    setFormBeneficiario({ ...formBeneficiario, [e.target.name]: e.target.value })
-  }
-
-  const agregarBeneficiario = async (e) => {
+  // ── Agregar beneficiario ─────────────────────────────────────
+  async function agregarBeneficiario(e) {
     e.preventDefault()
-    if (!miCliente) return
+    if (!clienteSeleccionado) return
+    const nombre = formBenef.nombre.trim()
+    if (!nombre) { setBenefMsg({ type: 'error', text: 'El nombre es obligatorio.' }); return }
 
-    const nombre = formBeneficiario.nombre.trim()
-    if (!nombre) {
-      alert('El nombre del beneficiario es obligatorio')
-      return
-    }
+    setGuardando(true)
+    setBenefMsg(null)
 
-    setActionLoading(true)
-    const { error } = await insertBeneficiario({
-      cliente_id: miCliente.id,
-      nombre,
-      apellido: formBeneficiario.apellido.trim(),
-      documento: formBeneficiario.documento.trim()
-    })
+    const { error } = await supabase
+      .from('beneficiarios')
+      .insert([{
+        cliente_id: clienteSeleccionado.id,
+        nombre,
+        apellido:  formBenef.apellido.trim()  || '',
+        documento: formBenef.documento.trim() || '',
+      }])
 
     if (error) {
-      alert('No se pudo agregar beneficiario: ' + error.message)
+      setBenefMsg({ type: 'error', text: 'Error al guardar: ' + error.message })
     } else {
-      setFormBeneficiario({ nombre: '', apellido: '', documento: '' })
-      await cargarBeneficiarios(miCliente.id)
+      setBenefMsg({ type: 'ok', text: 'Beneficiario agregado.' })
+      setFormBenef({ nombre: '', apellido: '', documento: '' })
+      cargarBeneficiarios(clienteSeleccionado.id)
     }
-    setActionLoading(false)
+    setGuardando(false)
   }
 
-  const resumenLegacy = useMemo(() => ({
-    cedula: miCliente?.documento || '',
-    nombre: miCliente?.nombre || '',
-    apellido: miCliente?.apellido || '',
-    fechaIngreso: miCliente?.fecha_ingreso || ''
-  }), [miCliente])
-
+  // ────────────────────────────────────────────────────────────
   return (
-    <div className="legacy-layout">
-      <div className="legacy-tabs" role="tablist" aria-label="Navegación de módulos">
-        <button type="button" className="legacy-tab">Afiliados</button>
-        <button type="button" className="legacy-tab">Pagos</button>
-        <button type="button" className="legacy-tab active">Consultas</button>
-        <button type="button" className="legacy-tab">Reportes Mensuales</button>
+    <div style={s.root}>
+
+      {/* ── TABS ── */}
+      <div style={s.tabBar}>
+        {TABS.map(tab => (
+          <button
+            key={tab}
+            style={{ ...s.tab, ...(tabActiva === tab ? s.tabActiva : {}) }}
+            onClick={() => setTabActiva(tab)}
+            type="button"
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
-      <div className="legacy-content">
-        <div className="legacy-column">
-          <h3 className="legacy-panel-title">Afiliados</h3>
-          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-            Tu registro (rol <b>{normalizedRole}</b>, solo lectura).
-          </p>
-          <label className="legacy-label">Cédula:</label>
-          <input className="legacy-input" value={resumenLegacy.cedula} readOnly />
-          <label className="legacy-label">Nombre:</label>
-          <input className="legacy-input" value={resumenLegacy.nombre} readOnly />
-          <label className="legacy-label">Apellido:</label>
-          <input className="legacy-input" value={resumenLegacy.apellido} readOnly />
-          <label className="legacy-label">Fecha Ingreso:</label>
-          <input className="legacy-input" value={resumenLegacy.fechaIngreso} readOnly />
-          <button className="legacy-button legacy-button-blue" type="button" disabled>
-            Agregar Afiliado
-          </button>
+      {/* ── CONTENIDO (solo Consultas es funcional) ── */}
+      <div style={s.content}>
+
+        {/* ── COLUMNA 1: Afiliados (visual) ── */}
+        <div style={s.col}>
+          <div style={{ ...s.colTitle, color: '#2563eb' }}>Afiliados</div>
+          <p style={s.hint}>Registro de afiliados del sistema.</p>
+          {['Cédula','Nombre','Apellido','Fecha Ingreso'].map(lbl => (
+            <div key={lbl} style={s.fieldGroup}>
+              <label style={s.label}>{lbl}:</label>
+              <input style={s.input} disabled />
+            </div>
+          ))}
+          <button style={{ ...s.btn, ...s.btnBlue }} disabled>Agregar Afiliado</button>
         </div>
 
-        <div className="legacy-column">
-          <h3 className="legacy-panel-title legacy-panel-title-green">Pagos</h3>
-          <label className="legacy-label">Cédula:</label>
-          <input className="legacy-input" disabled />
-          <label className="legacy-label">Mes:</label>
-          <select className="legacy-input" disabled>
-            <option>Enero</option>
-          </select>
-          <label className="legacy-label">Año:</label>
-          <input className="legacy-input" disabled />
-          <label className="legacy-label">Valor Pago:</label>
-          <input className="legacy-input" disabled />
-          <button className="legacy-button legacy-button-green" type="button" disabled>
-            Registrar Pago
-          </button>
+        {/* ── COLUMNA 2: Pagos (visual) ── */}
+        <div style={s.col}>
+          <div style={{ ...s.colTitle, color: '#16a34a' }}>Pagos</div>
+          {['Cédula','Año','Valor Pago'].map(lbl => (
+            <div key={lbl} style={s.fieldGroup}>
+              <label style={s.label}>{lbl}:</label>
+              <input style={s.input} disabled />
+            </div>
+          ))}
+          <div style={s.fieldGroup}>
+            <label style={s.label}>Mes:</label>
+            <select style={s.input} disabled>
+              {MESES.map(m => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <button style={{ ...s.btn, ...s.btnGreen }} disabled>Registrar Pago</button>
         </div>
 
-        <div className="legacy-column legacy-column-wide">
-          <h3 className="legacy-panel-title legacy-panel-title-orange">Consultas</h3>
-          <form onSubmit={handleBuscar}>
-            <label className="legacy-label">Buscar por Cédula (solo tu registro):</label>
+        {/* ── COLUMNA 3: Consultas (FUNCIONAL) ── */}
+        <div style={{ ...s.col, ...s.colWide }}>
+          <div style={{ ...s.colTitle, color: '#ea580c' }}>Consultas</div>
+
+          {/* Formulario de búsqueda */}
+          <form onSubmit={buscarAfiliado}>
+            <label style={s.label}>Buscar por Cédula:</label>
             <input
-              className="legacy-input"
+              style={{ ...s.input, marginBottom: 6 }}
               placeholder="Documento (búsqueda parcial)"
-              value={documentoBusqueda}
-              onChange={(e) => setDocumentoBusqueda(e.target.value)}
+              value={documento}
+              onChange={e => setDocumento(e.target.value)}
+              autoFocus
             />
-            <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>
-              La búsqueda usa coincidencia parcial y solo aplica sobre tu <code>cliente_id</code>.
-            </p>
-            <button className="legacy-button legacy-button-orange" type="submit" disabled={actionLoading || listLoading}>
-              {actionLoading ? 'Buscando...' : 'Buscar Afiliado'}
+            <button
+              style={{ ...s.btn, ...s.btnOrange, width: '100%' }}
+              type="submit"
+              disabled={buscando || !documento.trim()}
+            >
+              {buscando ? 'Buscando…' : 'Buscar Afiliado'}
             </button>
           </form>
 
+          {/* Tabla de resultados */}
           <div style={{ marginTop: 14 }}>
-            <h4 className="subheading" style={{ marginTop: 0 }}>Tabla</h4>
-            <div className={`table-wrapper ${listLoading ? 'table-loading' : 'table-loaded'}`}>
-              <table className="table">
+            <div style={s.tableLabel}>Tabla</div>
+            <div style={s.tableWrap}>
+              <table style={s.table}>
                 <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Apellido</th>
-                    <th>Documento</th>
-                    <th>Fecha ingreso</th>
+                  <tr style={s.thead}>
+                    <th style={s.th}>Nombre</th>
+                    <th style={s.th}>Apellido</th>
+                    <th style={s.th}>Documento</th>
+                    <th style={s.th}>Fecha ingreso</th>
+                    <th style={s.th}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {listLoading ? (
-                    <tr>
-                      <td colSpan="4" className="empty-row">Cargando...</td>
-                    </tr>
+                  {buscando ? (
+                    <tr><td colSpan="5" style={s.tdEmpty}>Buscando…</td></tr>
+                  ) : !buscado ? (
+                    <tr><td colSpan="5" style={s.tdEmpty}>Ingresa un documento y presiona Buscar.</td></tr>
                   ) : clientes.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" className="empty-row">Sin coincidencias</td>
+                    <tr><td colSpan="5" style={s.tdEmpty}>Sin coincidencias</td></tr>
+                  ) : clientes.map(c => (
+                    <tr
+                      key={c.id}
+                      style={{
+                        ...s.tr,
+                        background: clienteSeleccionado?.id === c.id ? '#dbeafe' : undefined,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => seleccionarCliente(c)}
+                    >
+                      <td style={s.td}>{c.nombre}</td>
+                      <td style={s.td}>{c.apellido}</td>
+                      <td style={s.td}>{c.documento}</td>
+                      <td style={s.td}>{c.fecha_ingreso ?? '—'}</td>
+                      <td style={s.td}>
+                        <button
+                          style={s.btnSmall}
+                          type="button"
+                          onClick={e => { e.stopPropagation(); seleccionarCliente(c) }}
+                        >
+                          {clienteSeleccionado?.id === c.id ? 'Ocultar' : 'Ver'}
+                        </button>
+                      </td>
                     </tr>
-                  ) : (
-                    clientes.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.nombre}</td>
-                        <td>{row.apellido}</td>
-                        <td>{row.documento}</td>
-                        <td>{row.fecha_ingreso}</td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
 
-          <div className="section section-soft" style={{ marginTop: 14, padding: 16 }}>
-            <h4 className="subheading" style={{ marginTop: 0 }}>Beneficiarios</h4>
-            {benefLoading ? (
-              <p className="muted">Cargando beneficiarios...</p>
+          {/* Panel de beneficiarios */}
+          <div style={s.benefPanel}>
+            <div style={s.benefTitle}>
+              Beneficiarios
+              {clienteSeleccionado && (
+                <span style={{ fontWeight: 400, fontSize: 13, color: '#6b7280', marginLeft: 8 }}>
+                  — {clienteSeleccionado.nombre} {clienteSeleccionado.apellido}
+                </span>
+              )}
+            </div>
+
+            {!clienteSeleccionado ? (
+              <p style={s.hint}>Selecciona un afiliado de la tabla para ver sus beneficiarios.</p>
+            ) : benefLoading ? (
+              <p style={s.hint}>Cargando…</p>
             ) : beneficiarios.length === 0 ? (
-              <p className="muted">No hay beneficiarios registrados.</p>
+              <p style={s.hint}>No hay beneficiarios registrados.</p>
             ) : (
-              <ul className="simple-list">
-                {beneficiarios.map((item) => (
-                  <li key={item.id}>
-                    {(item.nombre || '—')} {item.apellido || ''}
-                    {item.documento ? ` · Doc: ${item.documento}` : ''}
+              <ul style={s.benefList}>
+                {beneficiarios.map(b => (
+                  <li key={b.id} style={s.benefItem}>
+                    <strong>{b.nombre}</strong> {b.apellido}
+                    {b.documento ? <span style={{ color: '#6b7280' }}> · {b.documento}</span> : ''}
                   </li>
                 ))}
               </ul>
             )}
 
-            <form onSubmit={agregarBeneficiario} className="form-stack">
-              <h4 className="subheading">Agregar beneficiario</h4>
-              <input
-                className="input"
-                name="nombre"
-                placeholder="Nombre"
-                value={formBeneficiario.nombre}
-                onChange={handleChangeBenef}
-              />
-              <input
-                className="input"
-                name="apellido"
-                placeholder="Apellido"
-                value={formBeneficiario.apellido}
-                onChange={handleChangeBenef}
-              />
-              <input
-                className="input"
-                name="documento"
-                placeholder="Documento"
-                value={formBeneficiario.documento}
-                onChange={handleChangeBenef}
-              />
-              <button className="button button-primary" type="submit" disabled={actionLoading || !miCliente}>
-                {actionLoading ? 'Guardando...' : 'Agregar beneficiario'}
-              </button>
-            </form>
+            {/* Formulario agregar beneficiario */}
+            {clienteSeleccionado && (
+              <form onSubmit={agregarBeneficiario} style={{ marginTop: 10 }}>
+                <div style={s.tableLabel}>Agregar beneficiario</div>
+
+                {benefMsg && (
+                  <div style={{
+                    ...s.msg,
+                    background: benefMsg.type === 'ok' ? '#f0fdf4' : '#fef2f2',
+                    color:      benefMsg.type === 'ok' ? '#15803d' : '#dc2626',
+                    borderColor:benefMsg.type === 'ok' ? '#86efac' : '#fca5a5',
+                  }}>
+                    {benefMsg.text}
+                  </div>
+                )}
+
+                <input
+                  style={{ ...s.input, marginBottom: 6 }}
+                  placeholder="Nombre *"
+                  value={formBenef.nombre}
+                  onChange={e => setFormBenef(f => ({ ...f, nombre: e.target.value }))}
+                />
+                <input
+                  style={{ ...s.input, marginBottom: 6 }}
+                  placeholder="Apellido"
+                  value={formBenef.apellido}
+                  onChange={e => setFormBenef(f => ({ ...f, apellido: e.target.value }))}
+                />
+                <input
+                  style={{ ...s.input, marginBottom: 8 }}
+                  placeholder="Documento"
+                  value={formBenef.documento}
+                  onChange={e => setFormBenef(f => ({ ...f, documento: e.target.value }))}
+                />
+                <button
+                  style={{ ...s.btn, ...s.btnBlue }}
+                  type="submit"
+                  disabled={guardando}
+                >
+                  {guardando ? 'Guardando…' : 'Agregar beneficiario'}
+                </button>
+              </form>
+            )}
           </div>
-        </div>
-      </div>
+
+        </div>{/* fin col Consultas */}
+      </div>{/* fin content */}
     </div>
   )
 }
 
-export default BusquedaUsuario
+// ════════════════════════════════════════════════════════════════
+// ESTILOS — inline para no tocar App.css
+// ════════════════════════════════════════════════════════════════
+const s = {
+  root: {
+    fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif',
+    fontSize: 13,
+    color: '#1f2937',
+  },
+  // Tabs
+  tabBar: {
+    display: 'flex',
+    borderBottom: '2px solid #cbd5e1',
+    marginBottom: 0,
+  },
+  tab: {
+    padding: '7px 18px',
+    border: '1px solid #cbd5e1',
+    borderBottom: 'none',
+    background: '#e5e7eb',
+    cursor: 'pointer',
+    fontSize: 13,
+    borderRadius: '4px 4px 0 0',
+    marginRight: 2,
+    color: '#374151',
+  },
+  tabActiva: {
+    background: '#fff',
+    borderBottom: '2px solid #fff',
+    marginBottom: -2,
+    fontWeight: 600,
+    color: '#111827',
+  },
+  // Layout 3 columnas
+  content: {
+    display: 'flex',
+    gap: 0,
+    border: '1px solid #cbd5e1',
+    borderTop: 'none',
+    background: '#f1f5f9',
+    minHeight: 500,
+  },
+  col: {
+    flex: '0 0 220px',
+    padding: '14px 16px',
+    borderRight: '1px solid #cbd5e1',
+    background: '#f8fafc',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  colWide: {
+    flex: 1,
+    borderRight: 'none',
+  },
+  colTitle: {
+    fontWeight: 700,
+    fontSize: 14,
+    marginBottom: 6,
+  },
+  // Campos
+  fieldGroup: {
+    marginBottom: 8,
+  },
+  label: {
+    display: 'block',
+    fontSize: 12,
+    color: '#4b5563',
+    marginBottom: 3,
+    fontWeight: 500,
+  },
+  input: {
+    width: '100%',
+    padding: '5px 8px',
+    border: '1px solid #9ca3af',
+    borderRadius: 3,
+    fontSize: 13,
+    background: '#fff',
+    boxSizing: 'border-box',
+    color: '#111827',
+  },
+  hint: {
+    fontSize: 12,
+    color: '#6b7280',
+    margin: '0 0 8px',
+  },
+  // Botones
+  btn: {
+    padding: '7px 0',
+    width: '100%',
+    border: 'none',
+    borderRadius: 4,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    marginTop: 4,
+    letterSpacing: 0.2,
+  },
+  btnBlue:   { background: '#2563eb', color: '#fff' },
+  btnGreen:  { background: '#16a34a', color: '#fff' },
+  btnOrange: { background: '#ea580c', color: '#fff' },
+  btnSmall: {
+    padding: '3px 10px',
+    fontSize: 12,
+    border: '1px solid #9ca3af',
+    borderRadius: 3,
+    background: '#fff',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  // Tabla
+  tableLabel: {
+    fontWeight: 600,
+    fontSize: 13,
+    marginBottom: 6,
+    color: '#374151',
+  },
+  tableWrap: {
+    overflowX: 'auto',
+    border: '1px solid #cbd5e1',
+    borderRadius: 4,
+    background: '#fff',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: 12,
+  },
+  thead: {
+    background: '#e5e7eb',
+  },
+  th: {
+    padding: '6px 10px',
+    textAlign: 'left',
+    fontWeight: 600,
+    borderBottom: '1px solid #cbd5e1',
+    whiteSpace: 'nowrap',
+    color: '#374151',
+  },
+  tr: {
+    borderBottom: '1px solid #f3f4f6',
+  },
+  td: {
+    padding: '5px 10px',
+    whiteSpace: 'nowrap',
+  },
+  tdEmpty: {
+    padding: '14px 10px',
+    textAlign: 'center',
+    color: '#9ca3af',
+    fontSize: 12,
+  },
+  // Beneficiarios
+  benefPanel: {
+    marginTop: 16,
+    padding: 12,
+    border: '1px solid #cbd5e1',
+    borderRadius: 4,
+    background: '#fff',
+  },
+  benefTitle: {
+    fontWeight: 600,
+    fontSize: 13,
+    marginBottom: 8,
+    color: '#374151',
+  },
+  benefList: {
+    margin: '0 0 8px',
+    padding: '0 0 0 16px',
+    listStyle: 'disc',
+  },
+  benefItem: {
+    padding: '3px 0',
+    fontSize: 13,
+    color: '#1f2937',
+  },
+  msg: {
+    fontSize: 12,
+    padding: '6px 10px',
+    border: '1px solid',
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+}

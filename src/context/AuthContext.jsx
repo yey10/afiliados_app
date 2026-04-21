@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from 'react'
 import { supabase } from '../supabase'
@@ -12,176 +13,167 @@ const AuthContext = createContext(null)
 
 export function useAuth() {
   const ctx = useContext(AuthContext)
-  if (!ctx) {
-    throw new Error('useAuth debe usarse dentro de AuthProvider')
-  }
+  if (!ctx) throw new Error('useAuth debe usarse dentro de AuthProvider')
   return ctx
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
+  const [user, setUser]       = useState(null)
   const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)   // sesión inicial
+  const [authLoading, setAuthLoading] = useState(false) // login / logout actions
 
-  const [loading, setLoading] = useState(true)
-  const [authLoading, setAuthLoading] = useState(false)
+  // Evitar fetchProfile duplicados cuando onAuthStateChange dispara
+  // inmediatamente después de getSession
+  const profileFetchedFor = useRef(null)
 
-  // 🔹 Obtener perfil desde Supabase
-const fetchProfile = useCallback(async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle() // 🔥 IMPORTANTE
+  // ─────────────────────────────────────────────
+  // Fetch de perfil — con timeout de seguridad
+  // ─────────────────────────────────────────────
+  const fetchProfile = useCallback(async (userId) => {
+    if (profileFetchedFor.current === userId) return // ya lo tenemos
+    profileFetchedFor.current = userId
 
-    if (error) throw error
-
-    setProfile(data || null)
-  } catch (err) {
-    console.error('Error cargando perfil:', err.message)
-    setProfile(null)
-  }
-}, [])
-
-  // 🔹 Inicializar sesión
-useEffect(() => {
-  let isMounted = true
-
-  const initSession = async () => {
     try {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, role, cliente_id, documento')
+        .eq('id', userId)
+        .maybeSingle()
 
-      const currentUser = session?.user ?? null
-
-      if (!isMounted) return
-
-      setUser(currentUser)
-
-      // 🔥 NO BLOQUEAR EL LOADING
-      if (currentUser) {
-        fetchProfile(currentUser.id) // SIN await
-      }
-    } catch (err) {
-      console.error('Error inicializando sesión:', err.message)
-    } finally {
-      if (isMounted) setLoading(false) // 🔥 SIEMPRE SE EJECUTA
-    }
-  }
-
-  initSession()
-
-  const { data: listener } = supabase.auth.onAuthStateChange(
-    async (_event, session) => {
-      const currentUser = session?.user ?? null
-
-      setUser(currentUser)
-
-      if (currentUser) {
-        fetchProfile(currentUser.id)
-      } else {
+      if (error) {
+        console.error('[AuthContext] fetchProfile error:', error.message)
         setProfile(null)
+        return
+      }
+      setProfile(data ?? null)
+    } catch (err) {
+      console.error('[AuthContext] fetchProfile unexpected:', err)
+      setProfile(null)
+    }
+  }, [])
+
+  // ─────────────────────────────────────────────
+  // Inicialización — getSession + listener
+  // ─────────────────────────────────────────────
+  useEffect(() => {
+    let isMounted = true
+
+    const init = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!isMounted) return
+
+        const currentUser = session?.user ?? null
+        setUser(currentUser)
+
+        if (currentUser) {
+          // No bloqueamos el loading esperando el perfil
+          fetchProfile(currentUser.id)
+        }
+      } catch (err) {
+        console.error('[AuthContext] init error:', err)
+      } finally {
+        // CRÍTICO: siempre desbloquear loading, sin importar qué pasó
+        if (isMounted) setLoading(false)
       }
     }
-  )
 
-  return () => {
-    isMounted = false
-    listener.subscription.unsubscribe()
-  }
-}, [fetchProfile])
+    init()
 
-  // 🔹 Login
-  const login = useCallback(async (email, password) => {
-    setAuthLoading(true)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!isMounted) return
+        const currentUser = session?.user ?? null
+        setUser(currentUser)
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      })
+        if (currentUser) {
+          fetchProfile(currentUser.id)
+        } else {
+          profileFetchedFor.current = null
+          setProfile(null)
+        }
+      }
+    )
 
-      if (error) throw error
-
-      setUser(data.user)
-      await fetchProfile(data.user.id)
-
-      return { success: true }
-    } catch (err) {
-      console.error('Error login:', err.message)
-      return { success: false, error: err.message }
-    } finally {
-      setAuthLoading(false)
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
     }
   }, [fetchProfile])
 
-  // 🔹 Registro (IMPORTANTE para tu caso)
-  const register = useCallback(async (email, password) => {
+  // ─────────────────────────────────────────────
+  // Acciones de autenticación
+  // ─────────────────────────────────────────────
+  const login = useCallback(async (email, password) => {
     setAuthLoading(true)
-
+    profileFetchedFor.current = null // resetear cache al hacer login nuevo
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password
-      })
-
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
-
-      const userId = data.user.id
-
-      // 🔹 Crear perfil automáticamente
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert([
-          {
-            id: userId,
-            email,
-            role: 'user'
-          }
-        ])
-
-      if (profileError) throw profileError
-
+      // onAuthStateChange se encarga de setUser + fetchProfile
       return { success: true }
     } catch (err) {
-      console.error('Error register:', err.message)
+      console.error('[AuthContext] login error:', err.message)
       return { success: false, error: err.message }
     } finally {
       setAuthLoading(false)
     }
   }, [])
 
-  // 🔹 Logout
   const logout = useCallback(async () => {
+    setAuthLoading(true)
+    profileFetchedFor.current = null
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)
+    setAuthLoading(false)
   }, [])
 
-  // 🔹 Helpers de roles
-  const role = (profile?.role || 'user').toLowerCase()
+  // Registro básico — el admin normalmente crea usuarios desde el dashboard de Supabase
+  const register = useCallback(async (email, password) => {
+    setAuthLoading(true)
+    try {
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      if (error) throw error
 
+      // Crear perfil base (role: 'user')
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([{ id: data.user.id, email, role: 'user' }])
+
+      if (profileError) {
+        console.error('[AuthContext] register — profile insert error:', profileError.message)
+        // No bloqueamos el flujo; el perfil se puede crear después
+      }
+
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    } finally {
+      setAuthLoading(false)
+    }
+  }, [])
+
+  // ─────────────────────────────────────────────
+  // Helpers de rol
+  // ─────────────────────────────────────────────
+  const role = (profile?.role ?? 'user').toLowerCase()
   const isAdmin = role === 'admin'
-  const isUser = role === 'user'
+  const isUser  = role === 'user'
 
-  const value = useMemo(
-    () => ({
-      user,
-      profile,
-      loading,
-      authLoading,
-
-      role,
-      isAdmin,
-      isUser,
-
-      login,
-      register,
-      logout
-    }),
-    [user, profile, loading, authLoading, role, isAdmin, isUser, login, register, logout]
-  )
+  const value = useMemo(() => ({
+    user,
+    profile,
+    loading,
+    authLoading,
+    role,
+    isAdmin,
+    isUser,
+    login,
+    logout,
+    register,
+  }), [user, profile, loading, authLoading, role, isAdmin, isUser, login, logout, register])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

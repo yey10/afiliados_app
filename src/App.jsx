@@ -1,144 +1,156 @@
+/**
+ * App.jsx
+ * Shell de la aplicación:
+ * - Pantalla de login
+ * - Despacho por rol (admin / user)
+ * - Header con info de sesión y logout
+ */
 import { useState } from 'react'
 import './App.css'
-import DashboardAdmin from './components/DashboardAdmin'
-import BusquedaUsuario from './components/BusquedaUsuario'
-import { useAuth } from './context/AuthContext'
+import { useAuth }          from './context/AuthContext'
+import DashboardAdmin       from './components/DashboardAdmin'
+import BusquedaUsuario      from './components/BusquedaUsuario'
+import { Spinner }          from './components/ui'
 
-function App() {
-  const {
-    user,
-    profile,
-    loading,
-    authLoading,
-    role,
-    login,
-    logout
-  } = useAuth()
-
-  const [email, setEmail] = useState('')
+function LoginScreen({ loading }) {
+  const { login, authLoading } = useAuth()
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
+  const [error, setError]       = useState(null)
 
-  const handleLogin = async () => {
+  async function handleLogin(e) {
+    e.preventDefault()
+    setError(null)
     const res = await login(email.trim(), password)
-    if (!res.success) {
-      alert(res.error)
-    }
+    if (!res.success) setError(res.error)
   }
 
-  // 🔹 Loading inicial
+  return (
+    <div className="app-bg">
+      <div className="app-shell login-shell-wide">
+        <div className="login-card">
+          <div className="login-brand">
+            <span className="login-kicker">SISTEMA EMPRESARIAL</span>
+            <h1 className="login-title">Sistema de Afiliados</h1>
+            <p className="login-text">
+              Gestiona afiliados, consultas y beneficiarios desde un panel seguro.
+            </p>
+            <div className="login-badges">
+              <span className="login-badge">Seguridad</span>
+              <span className="login-badge">Roles</span>
+              <span className="login-badge">Auditoría</span>
+            </div>
+          </div>
+
+          <form className="panel login-panel" onSubmit={handleLogin}>
+            <h2 className="section-title">Iniciar sesión</h2>
+
+            {error && (
+              <div style={{
+                background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626',
+                borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 8
+              }}>
+                {error}
+              </div>
+            )}
+
+            <input
+              className="input"
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              autoComplete="username"
+              required
+            />
+            <input
+              className="input"
+              type="password"
+              placeholder="Contraseña"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+            <button
+              className="button button-primary button-full"
+              type="submit"
+              disabled={authLoading}
+            >
+              {authLoading ? <><Spinner size={14} /> Entrando…</> : 'Entrar'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const { user, profile, loading, authLoading, role, isAdmin, isUser, logout } = useAuth()
+
+  // 1. Sesión inicializando
   if (loading) {
     return (
       <div className="app-bg">
         <div className="app-shell">
-          <div className="dashboard-card">
-            <p className="muted">Cargando sesión...</p>
+          <div className="dashboard-card" style={{ textAlign: 'center', padding: 48 }}>
+            <Spinner size={28} />
+            <p className="muted" style={{ marginTop: 12 }}>Cargando sesión…</p>
           </div>
         </div>
       </div>
     )
   }
 
-  // 🔹 Login
-  if (!user) {
-    return (
-      <div className="app-bg">
-        <div className="app-shell login-shell-wide">
-          <div className="login-card">
-            <div className="login-brand">
-              <div className="brand-logo-wrap">
-                <img src="/icons.svg" alt="Logo" className="brand-logo" />
-              </div>
-              <span className="login-kicker">SISTEMA EMPRESARIAL</span>
-              <h1 className="login-title">Sistema de Afiliados</h1>
-              <p className="login-text">
-                Gestiona afiliados, consultas y beneficiarios desde un panel seguro.
-              </p>
+  // 2. No autenticado
+  if (!user) return <LoginScreen />
 
-              <div className="login-badges">
-                <span className="login-badge">Seguridad</span>
-                <span className="login-badge">Roles</span>
-                <span className="login-badge">Auditoría</span>
-              </div>
-            </div>
-
-            <div className="panel login-panel">
-              <h2 className="section-title">Iniciar sesión</h2>
-
-              <input
-                className="input"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-
-              <input
-                className="input"
-                type="password"
-                placeholder="Contraseña"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-
-              <button
-                className="button button-primary button-full"
-                onClick={handleLogin}
-                disabled={authLoading}
-              >
-                {authLoading ? 'Cargando...' : 'Entrar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const isAdmin = role === 'admin'
-  const isUser = role === 'user'
-
+  // 3. Autenticado — mostrar dashboard
   return (
     <div className="app-bg">
       <div className="app-shell">
         <div className="dashboard-card">
-          
-          {/* 🔹 HEADER */}
+
+          {/* Header */}
           <div className="header">
             <div>
               <div className="title-with-logo">
-                <img src="/icons.svg" alt="Logo" className="header-logo" />
                 <h1 className="title">Sistema de Afiliados</h1>
               </div>
               <p className="subtitle">Panel de control</p>
             </div>
-
             <div className="header-actions">
               <span className="role-badge">{role}</span>
-              <button className="button button-ghost" onClick={logout}>
-                Cerrar sesión
+              <span style={{ fontSize: 13, color: '#6b7280' }}>{user.email}</span>
+              <button className="button button-ghost" onClick={logout} disabled={authLoading}>
+                {authLoading ? <Spinner size={12} /> : 'Cerrar sesión'}
               </button>
             </div>
           </div>
 
-          {/* 🔹 PERFIL */}
-          <div className="section profile-summary">
-            <h3 className="section-title">Sesión</h3>
-            <div className="profile-grid">
-              <p><b>Email:</b> {user?.email}</p>
-              <p><b>Rol:</b> {role}</p>
-              <p><b>User ID:</b> {user?.id}</p>
-            </div>
-          </div>
-
-          {/* 🔹 VISTAS POR ROL */}
+          {/* Vista por rol */}
           {isAdmin && <DashboardAdmin />}
-          {isUser && <BusquedaUsuario />}
+          {isUser  && <BusquedaUsuario />}
 
-          {/* 🔹 ERROR DE ROL */}
+          {/* Rol desconocido — ayuda al developer */}
           {!isAdmin && !isUser && (
             <div className="section">
-              <p className="muted">
-                Rol no válido. Usa <code>admin</code> o <code>user</code> en la tabla <code>profiles</code>.
-              </p>
+              <div style={{
+                background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8,
+                padding: '14px 18px', color: '#92400e', fontSize: 13
+              }}>
+                <strong>Rol no reconocido: "{role}"</strong>
+                <p style={{ margin: '6px 0 0' }}>
+                  Edita la columna <code>role</code> de la tabla <code>profiles</code> para este usuario.
+                  Los valores válidos son <code>admin</code> y <code>user</code>.
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: '#6b7280' }}>
+                  User ID: <code>{user.id}</code>
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -146,5 +158,3 @@ function App() {
     </div>
   )
 }
-
-export default App
