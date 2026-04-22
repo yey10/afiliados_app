@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../supabase'
 import { registrarLogConsulta } from '../api/afiliados'
 
-const TABS = ['Afiliados', 'Pagos', 'Consultas', 'Reportes Mensuales']
+const TABS = ['Afiliados', 'Pagos', 'Consultas']
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
                'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
@@ -134,6 +134,10 @@ export default function BusquedaUsuario() {
 
   return (
     <div style={s.root}>
+      {/* HEADER CON LOGO */}
+      <div style={s.header}>
+        <img src="../assets/logo.jpeg" alt="Logo" style={s.logo} />
+      </div>
 
       {/* TABS */}
       <div style={s.tabBar}>
@@ -301,6 +305,8 @@ export default function BusquedaUsuario() {
 // Estilos compartidos (mismo objeto que DashboardAdmin)
 const s = {
   root: { fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', fontSize: 13, color: '#1f2937' },
+  header: { display: 'flex', justifyContent: 'center', padding: '10px', background: '#f8fafc', borderBottom: '1px solid #cbd5e1' },
+  logo: { height: '50px', objectFit: 'contain' },
   tabBar: { display: 'flex', borderBottom: '2px solid #cbd5e1', marginBottom: 0 },
   tab: { padding: '7px 18px', border: '1px solid #cbd5e1', borderBottom: 'none', background: '#e5e7eb', cursor: 'pointer', fontSize: 13, borderRadius: '4px 4px 0 0', marginRight: 2, color: '#374151' },
   tabActiva: { background: '#fff', borderBottom: '2px solid #fff', marginBottom: -2, fontWeight: 600, color: '#111827' },
