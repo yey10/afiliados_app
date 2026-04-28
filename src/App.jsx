@@ -29,11 +29,11 @@ function LoginScreen() {
         <div className="login-card">
           <div className="login-brand">
             {/* Logo grande en login */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18, width: '100%' }}>
               <img
                 src={logoImg}
                 alt="Logo"
-                style={{ height: 120, maxWidth: 280, objectFit: 'contain', borderRadius: 12 }}
+                style={{ width: '100%', maxWidth: 280, height: 'auto', objectFit: 'contain', borderRadius: 12 }}
               />
             </div>
             <span className="login-kicker">SISTEMA EMPRESARIAL</span>
@@ -126,7 +126,8 @@ export default function App() {
           <div className="header">
             <div>
               <div className="title-with-logo">
-                <h1 className="title">Sistema de Afiliados Casa Funeral La última Morada</h1>
+                <h1 className="title">Sistema de Afiliados La Última Morada Casa de Funerales
+                </h1>
               </div>
               <p className="sub              const FORM_EMPTY = {
                 nombre: '',
